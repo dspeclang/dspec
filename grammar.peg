@@ -1,0 +1,325 @@
+// =============================================================================
+// Data Specification Schema (dspec) — Formal PEG Grammar
+// =============================================================================
+//
+// Parsing Expression Grammar for the .dspec language.
+// Notation follows the PEG standard (Ford, 2004):
+//
+//   e1 / e2      — Ordered choice
+//   e*           — Zero or more
+//   e+           — One or more
+//   e?           — Optional
+//   &e           — Positive lookahead
+//   !e           — Negative lookahead
+//   'literal'    — Terminal string
+//   [a-z]        — Character class
+//   .            — Any character
+//
+// =============================================================================
+
+
+// ---------------------------------------------------------------------------
+// 1. Top-Level
+// ---------------------------------------------------------------------------
+
+Document
+    = _ (TopLevelDeclaration _)* EOF
+
+TopLevelDeclaration
+    = ModelDeclaration
+    / PivotDeclaration
+    / EnumDeclaration
+
+BlockComment
+    = '/*' (!('*/') .)* '*/'
+
+
+// ---------------------------------------------------------------------------
+// 2. Model & Pivot
+// ---------------------------------------------------------------------------
+
+ModelDeclaration
+    = 'Model' __ Identifier _ '{' _ ModelBody _ '}'
+
+PivotDeclaration
+    = 'Pivot' __ Identifier _ '{' _ ModelBody _ '}'
+
+ModelBody
+    = (ModelSection _)*
+
+ModelSection
+    = DescriptionSection
+    / TableNameSection
+    / FieldsSection
+    / IndexesSection
+    / RelationsSection
+    / ComputedAttributesSection
+    / ConstraintsSection
+
+
+// ---------------------------------------------------------------------------
+// 3. Description
+// ---------------------------------------------------------------------------
+
+DescriptionSection
+    = 'description' _ ':' _ StringLiteral
+
+TableNameSection
+    = 'table_name' _ ':' _ StringLiteral
+
+
+// ---------------------------------------------------------------------------
+// 4. Fields
+// ---------------------------------------------------------------------------
+
+FieldsSection
+    = 'fields' _ '{' _ (FieldDeclaration _)+ '}'
+
+FieldDeclaration
+    = FieldName ':' FieldType (_ Modifiers)?
+
+FieldName
+    = Identifier
+
+FieldType
+    = 'uuid' _ '(' _ ')'
+    / 'string' _ '(' _ Integer _ ')'
+    / 'string' _ '(' _ ')'
+    / 'char' _ '(' _ Integer _ ')'
+    / 'text' _ '(' _ ')'
+    / 'boolean' _ '(' _ ')'
+    / 'timestamp' _ '(' _ ')'
+    / 'integer' _ '(' _ ')'
+    / 'bigint' _ '(' _ ')'
+    / 'decimal' _ '(' _ Integer _ ',' _ Integer _ ')'
+    / 'enum' _ '(' _ Identifier _ ')'
+
+
+// ---------------------------------------------------------------------------
+// 5. Modifiers
+// ---------------------------------------------------------------------------
+
+Modifiers
+    = '[' _ ModifierList _ ']'
+
+ModifierList
+    = Modifier (_ ',' _ Modifier)*
+
+Modifier
+    = 'primary_key'
+    / 'unique'
+    / 'index'
+    / 'nullable'
+    / 'encrypted'
+    / 'unsigned'
+    / 'on_update' _ ':' _ FunctionCall
+    / 'on_delete' _ ':' _ OnDeleteAction
+    / 'foreign_key' _ ':' _ QualifiedField
+    / 'default' _ ':' _ DefaultValue
+
+OnDeleteAction
+    = 'cascade'
+    / 'set_null'
+    / 'restrict'
+    / 'no_action'
+
+DefaultValue
+    = FunctionCall       // e.g. uuid(), now()
+    / BooleanLiteral     // true, false
+    / EnumMemberRef      // Pending, Draft, Low, ...
+    / NumericLiteral     // 0, 1, 100
+    / StringLiteral      // "some default"
+
+FunctionCall
+    = Identifier _ '(' _ ')'
+
+QualifiedField
+    = Identifier '.' Identifier
+
+
+// ---------------------------------------------------------------------------
+// 6. Indexes
+// ---------------------------------------------------------------------------
+
+IndexesSection
+    = 'indexes' _ '{' _ (IndexDeclaration _)+ '}'
+
+IndexDeclaration
+    = IndexName ':' _ IndexType _ '(' _ IndexColumns _ ')'
+
+IndexName
+    = Identifier
+
+IndexType
+    = 'unique'
+    / 'index'
+
+IndexColumns
+    = SingleColumn
+    / CompositeColumns
+
+SingleColumn
+    = Identifier
+
+CompositeColumns
+    = '[' _ Identifier (_ ',' _ Identifier)+ _ ']'
+
+
+// ---------------------------------------------------------------------------
+// 7. Relations
+// ---------------------------------------------------------------------------
+
+RelationsSection
+    = 'relations' _ '{' _ (RelationDeclaration _)+ '}'
+
+RelationDeclaration
+    = RelationName ':' _ RelationType
+
+RelationName
+    = Identifier
+
+RelationType
+    = 'morphTo' _ '(' _ ')'
+    / 'morphMany' _ '(' _ Identifier _ ',' _ Identifier _ ')'
+    / 'morphOne' _ '(' _ Identifier _ ',' _ Identifier _ ')'
+    / 'morphToMany' _ '(' _ Identifier _ ',' _ Identifier _ ')'
+    / 'morphedByMany' _ '(' _ Identifier _ ',' _ Identifier _ ')'
+    / 'belongsTo' _ '(' _ Identifier _ ',' _ Identifier _ ')'
+    / 'hasMany' _ '(' _ Identifier _ ',' _ Identifier _ ')'
+    / 'hasOne' _ '(' _ Identifier _ ',' _ Identifier _ ')'
+    / 'belongsToMany' _ '(' _ Identifier _ ',' _ Identifier _ ',' _ Identifier _ ')'
+
+
+// ---------------------------------------------------------------------------
+// 8. Computed Attributes
+// ---------------------------------------------------------------------------
+
+ComputedAttributesSection
+    = 'computed_attributes' _ '{' _ (ComputedAttribute _)+ '}'
+
+ComputedAttribute
+    = AttributeName ':' FieldType _ '[' _ Expression _ ']'
+
+AttributeName
+    = Identifier
+
+
+// ---------------------------------------------------------------------------
+// 9. Constraints
+// ---------------------------------------------------------------------------
+
+ConstraintsSection
+    = 'constraints' _ '{' _ (ConstraintDeclaration _)+ '}'
+
+ConstraintDeclaration
+    = ConstraintName ':' _ 'check' _ '(' _ Expression _ ')'
+
+ConstraintName
+    = Identifier
+
+
+// ---------------------------------------------------------------------------
+// 10. Enum
+// ---------------------------------------------------------------------------
+
+EnumDeclaration
+    = 'Enum' __ Identifier ':' FieldType _ '{' _ EnumMembers _ '}'
+
+EnumMembers
+    = EnumMember (_ ',' _ EnumMember)* _ ','?
+
+EnumMember
+    = Identifier _ '=' _ EnumValue
+    / Identifier
+
+EnumValue
+    = NumericLiteral
+    / StringLiteral
+
+
+// ---------------------------------------------------------------------------
+// 11. Expressions (for constraints and computed attributes)
+// ---------------------------------------------------------------------------
+//
+// Expressions are intentionally kept loose — they represent SQL-like
+// boolean/comparison expressions used inside check() and computed_attributes.
+// A full SQL expression parser is out of scope; this covers the practical
+// subset used in .dspec files.
+//
+
+Expression
+    = OrExpression
+
+OrExpression
+    = AndExpression (_ 'OR' _ AndExpression)*
+
+AndExpression
+    = NotExpression (_ 'AND' _ NotExpression)*
+
+NotExpression
+    = 'NOT' _ '(' _ Expression _ ')'
+    / 'NOT' __ PrimaryExpression
+    / ComparisonExpression
+
+ComparisonExpression
+    = PrimaryExpression _ ComparisonOp _ PrimaryExpression
+    / PrimaryExpression __ 'IS' __ 'NOT' __ 'NULL'
+    / PrimaryExpression __ 'IS' __ 'NULL'
+    / '(' _ Expression _ ')'
+    / PrimaryExpression
+
+ComparisonOp
+    = '!='
+    / '<='
+    / '>='
+    / '='
+    / '<'
+    / '>'
+
+PrimaryExpression
+    = FunctionCall
+    / BooleanLiteral
+    / NumericLiteral
+    / StringLiteral
+    / Identifier
+
+
+// ---------------------------------------------------------------------------
+// 12. Terminals
+// ---------------------------------------------------------------------------
+
+Identifier
+    = [a-zA-Z_] [a-zA-Z0-9_]*
+
+Integer
+    = [0-9]+
+
+NumericLiteral
+    = '-'? [0-9]+ ('.' [0-9]+)?
+
+BooleanLiteral
+    = 'true'
+    / 'false'
+
+EnumMemberRef
+    = [A-Z] [a-zA-Z0-9]*
+
+StringLiteral
+    = '"' (!'"' .)* '"'
+
+
+// ---------------------------------------------------------------------------
+// 13. Whitespace & Comments
+// ---------------------------------------------------------------------------
+
+_    = (Whitespace / LineComment / BlockComment)*    // Optional whitespace
+__   = (Whitespace / LineComment / BlockComment)+    // Required whitespace
+
+Whitespace
+    = [ \t\n\r]+
+
+LineComment
+    = '//' (![\n\r] .)* [\n\r]?
+
+EOF
+    = !.
